@@ -1,0 +1,14 @@
+{
+  "name": "m2c-boat-trip-challenge",
+  "version": "1.0.0",
+  "private": true,
+  "description": "M2C Integration Boat Trip Challenge Extravaganza - browser party race for the integration team",
+  "main": "server.js",
+  "engines": { "node": ">=18" },
+  "scripts": {
+    "start": "node server.js",
+    "loadtest": "node loadtest/loadtest.js"
+  },
+  "dependencies": {},
+  "license": "UNLICENSED"
+}

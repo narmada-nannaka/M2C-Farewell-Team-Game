@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#050a18">
+<title>M2C Integration Boat Trip Challenge Extravaganza</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Anton&family=Barlow+Semi+Condensed:wght@500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/style.css">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ctext y='26' font-size='26'%3E%E2%9A%A1%3C/text%3E%3C/svg%3E">
+</head>
+<body>
+
+<div id="storm" aria-hidden="true"></div>
+
+<!-- ======================= TITLE / LOBBY ======================= -->
+<section id="screen-title" class="screen">
+  <header class="title-head">
+    <div class="kraken-mark" aria-hidden="true">
+      <svg viewBox="0 0 120 120"><use href="#kraken"/></svg>
+    </div>
+    <h1 class="wordmark">
+      <span class="wm-small">M2C Integration</span>
+      <span class="wm-big">Boat Trip</span>
+      <span class="wm-mid">Challenge Extravaganza</span>
+    </h1>
+    <p class="tagline">Twenty challenges. One finish line. No time to prepare.</p>
+  </header>
+
+  <div class="title-body">
+    <div id="join-panel" class="panel">
+      <label class="field-label" for="name-input">What goes on your boat?</label>
+      <div class="field-row">
+        <input id="name-input" type="text" maxlength="18" autocomplete="off" autocapitalize="words"
+               spellcheck="false" placeholder="Your name" aria-label="Your name">
+        <button id="name-go" class="btn btn-primary">Board the boat</button>
+      </div>
+      <p class="hint" id="join-hint">Running the session? Enter <strong>admin</strong> as your name to take the helm.</p>
+    </div>
+
+    <div id="admin-panel" class="panel panel-admin hidden">
+      <p class="admin-badge">You have the helm</p>
+      <p class="hint">Players join on their own devices. Start when the crew is aboard.</p>
+      <div class="field-row">
+        <button id="start-btn" class="btn btn-go">Start the race</button>
+      </div>
+      <p class="hint" id="start-hint"></p>
+    </div>
+
+    <div id="waiting-panel" class="panel hidden">
+      <p class="waiting-line">Aboard as <strong id="my-name"></strong>. Waiting for the admin to start.</p>
+    </div>
+
+    <div class="fleet">
+      <div class="fleet-head">
+        <h2>Crew aboard</h2>
+        <span id="player-count" class="count-chip">0</span>
+      </div>
+      <div id="fleet-list" class="fleet-list"></div>
+      <p id="fleet-empty" class="fleet-empty">No boats yet. First one in gets the best lane.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ======================= PLAY (minigames) ======================= -->
+<section id="screen-play" class="screen hidden">
+  <div class="play-bar">
+    <div class="play-progress">
+      <div class="pp-track"><div id="pp-fill" class="pp-fill"></div></div>
+      <span id="pp-label" class="pp-label">0 / 20</span>
+    </div>
+    <div id="play-clock" class="play-clock">0:00</div>
+  </div>
+
+  <div class="game-frame">
+    <h2 id="game-title" class="game-title"></h2>
+    <p id="game-instruction" class="game-instruction"></p>
+    <div id="game-stage" class="game-stage"></div>
+  </div>
+
+  <div class="play-foot">
+    <button id="skip-btn" class="btn btn-skip">Skip this one</button>
+  </div>
+
+  <div id="finished-card" class="finished-card hidden">
+    <div class="fc-bolt">⚡</div>
+    <h2>Across the line</h2>
+    <p id="finished-time" class="fc-time"></p>
+    <p class="hint">Hold tight. Scoreboard appears when the fleet is in.</p>
+  </div>
+</section>
+
+<!-- ======================= RACE COURSE ======================= -->
+<section id="screen-race" class="screen hidden">
+  <div class="race-head">
+    <h2 class="race-title">M2C Integration Boat Trip Challenge Extravaganza</h2>
+    <div class="race-meta">
+      <span id="race-clock" class="race-clock">0:00</span>
+      <span id="race-count" class="count-chip">0</span>
+    </div>
+  </div>
+  <canvas id="course" class="course"></canvas>
+  <div class="race-foot">
+    <span id="spectator-note" class="spectator-note hidden">Round in progress. You will join the next one.</span>
+    <button id="end-btn" class="btn btn-stop hidden">End game</button>
+  </div>
+</section>
+
+<!-- ======================= SCOREBOARD ======================= -->
+<section id="screen-score" class="screen hidden">
+  <h2 class="score-head">Final standings</h2>
+  <div id="score-list" class="score-list"></div>
+  <div class="score-foot">
+    <button id="end-btn-2" class="btn btn-stop hidden">End game</button>
+    <span id="score-wait" class="spectator-note">Waiting for the admin to reset the course.</span>
+  </div>
+</section>
+
+<!-- shared sprites -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="kraken" viewBox="0 0 120 120">
+      <path d="M60 14c-17 0-30 12-30 28 0 7 3 13 8 18-6 5-12 14-15 26-1 4 5 6 7 2 4-9 9-16 14-20 1 5 2 9 2 14 0 6-3 11-8 15-3 3 1 8 5 6 8-4 12-12 12-21 0-5-1-9-2-13h14c-1 4-2 8-2 13 0 9 4 17 12 21 4 2 8-3 5-6-5-4-8-9-8-15 0-5 1-9 2-14 5 4 10 11 14 20 2 4 8 2 7-2-3-12-9-21-15-26 5-5 8-11 8-18 0-16-13-28-30-28z"/>
+      <circle cx="47" cy="40" r="7" fill="#7df9ff"/>
+      <circle cx="73" cy="40" r="7" fill="#7df9ff"/>
+    </symbol>
+    <symbol id="boat" viewBox="0 0 100 60">
+      <path d="M12 38h76l-9 15H21z"/>
+      <path d="M50 6l22 26H50z"/>
+      <path d="M46 8L26 32h20z"/>
+      <rect x="48" y="4" width="3" height="30"/>
+    </symbol>
+  </defs>
+</svg>
+
+<script src="/js/minigames.js"></script>
+<script src="/js/course.js"></script>
+<script src="/js/app.js"></script>
+</body>
+</html>
