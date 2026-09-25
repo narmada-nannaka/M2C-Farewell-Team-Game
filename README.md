@@ -92,10 +92,10 @@ turn off autoscaling. For a dozen people on a call this costs you nothing.
 
 **You, on the shared screen or the video call:**
 
-1. Open the link.
-2. Type `admin` — on a laptop just type it anywhere on the title screen, on a phone
-   enter `admin` as your boat name. The first person to do this gets the helm.
-3. Share your screen. You will see the fleet arriving on the title screen.
+1. Open your host link (see *Reserving the helm* below). If you have not set one up,
+   open the ordinary link and type `admin` — on a laptop just type it anywhere on the
+   title screen, on a phone enter `admin` as your boat name.
+2. Share your screen. You will see the fleet arriving on the title screen.
 4. When everyone is aboard, press **Start the race**. Your screen switches to the
    course, and that is the view everyone watches.
 5. **End game** is always there if you need to stop early. Press it again on the
@@ -108,6 +108,47 @@ turn off autoscaling. For a dozen people on a call this costs you nothing.
 3. Stuck or something looks broken? Press **Skip this one**. It costs you progress but
    the game comes back around later, after you have seen everything else.
 4. Twenty cleared challenges and you are across the line.
+
+### Reserving the helm
+
+By default the helm goes to whoever types `admin` first. That is fine for a small group
+and a problem the moment you paste the link into a team channel, because anyone can take
+it, usually by accident.
+
+Set an `ADMIN_KEY` environment variable and the helm becomes yours alone.
+
+On Render: **Environment** then **Add Environment Variable**, key `ADMIN_KEY`, value
+whatever you like. Save and let it redeploy.
+
+Locally:
+
+```powershell
+$env:ADMIN_KEY="boat2026"; node server.js
+```
+
+Now you have two links:
+
+| Who | Link |
+|---|---|
+| You, the host | `https://your-app.onrender.com/?key=boat2026` |
+| The team | `https://your-app.onrender.com/` |
+
+Open the host link and the helm is claimed for you automatically. Nobody else can take
+it, whatever they type. If you refresh, or your browser falls over mid-session, opening
+the host link again puts you straight back on the helm.
+
+The key is stripped out of the address bar the instant the page loads, so it will not
+appear on the projector while you are screen sharing. It is remembered for that browser
+tab, which is how a refresh still works.
+
+Share the plain link with the team. Keep the host link to yourself.
+
+### Running the helm and racing at the same time
+
+The admin does not race, by design, because the course view is the whole point of their
+screen. If you want to do both, use two devices. Open the host link on the laptop you are
+screen sharing from, and open the plain link on your phone to join as a player. They are
+separate sessions, so the server treats them as two different people.
 
 **Latecomers.** Anyone who arrives mid-round sees the course as a spectator with no
 controls, and joins the next round automatically. Nobody gets dropped into a race
@@ -230,9 +271,14 @@ pushes that game to the back, so it only reappears after everything else has bee
 Twenty completions crosses the line. Dealing exactly twenty would have made the skip rule
 collide with the finish condition.
 
-**Presence.** Every poll is a heartbeat. Twelve seconds of silence shows a boat as offline,
-thirty-five seconds removes it. If every racer disappears the round ends rather than
-hanging.
+**Presence.** A player counts as present if they are holding an open long poll, or if
+the server has heard from them in the last thirty seconds. Silence for seventy-five
+seconds removes them. If every racer disappears the round ends rather than hanging.
+
+The invariant that matters here: the presence grace period must be longer than the
+poll hold time. A parked client sends nothing while it waits, so a grace period shorter
+than the hold marks connected players as gone. `server.js` throws on startup if that
+invariant is ever broken by a future edit.
 
 ### Files
 
@@ -254,6 +300,9 @@ Dockerfile, render.yaml
 
 **Challenges per round.** `GAMES_TO_FINISH` at the top of `server.js`. Twenty takes most
 people four to six minutes.
+
+**Environment variables.** `PORT` sets the listening port. `ADMIN_KEY` reserves the helm,
+see above. Both are optional.
 
 **Adding a game.** Append a `G(title, instruction, mount)` call in `minigames.js`. The
 server reads the pool size from `TOTAL_GAMES`, so bump that to match. Your `mount` gets
