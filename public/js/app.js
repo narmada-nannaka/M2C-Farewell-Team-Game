@@ -7,7 +7,23 @@
 (function () {
   'use strict';
 
-  const BOT = new URLSearchParams(location.search).has('bot');
+  const params = new URLSearchParams(location.search);
+  const BOT = params.has('bot');
+
+  // Host link support. /?key=xyz reserves the helm, /?admin claims it when no
+  // ADMIN_KEY is configured. The value is stashed for this tab and stripped from
+  // the address bar, so a screen share never puts your host link on the projector
+  // and a refresh still gets you the helm back.
+  let helmKey = params.has('key') ? params.get('key') : (params.has('admin') ? '' : null);
+  if (helmKey !== null) {
+    sessionStorage.setItem('m2c-helm', helmKey);
+    params.delete('key'); params.delete('admin');
+    const q = params.toString();
+    history.replaceState(null, '', location.pathname + (q ? '?' + q : ''));
+  } else {
+    const stored = sessionStorage.getItem('m2c-helm');
+    if (stored !== null) helmKey = stored;
+  }
 
   const $ = sel => document.querySelector(sel);
   const screens = {
@@ -67,12 +83,25 @@
   }
 
   // ------------------------------------------------------------- rendering
+  let helmTries = 0, helmLastTry = 0, helmLastPhase = null;
+
+  function maybeClaimHelm() {
+    if (helmKey === null || !snap || !snap.you) return;
+    if (snap.you.role === 'admin') { helmTries = 0; return; }
+    if (snap.phase === 'RACING' && snap.you.inRound) return;
+    if (helmTries >= 5 || Date.now() - helmLastTry < 2500) return;
+    helmTries++; helmLastTry = Date.now();
+    act({ type: 'claimAdmin', key: helmKey });
+  }
+
   function apply(s) {
     if (!s || !s.v) return;
     version = s.v;
     clockOffset = s.serverTime - Date.now();
     snap = s;
+    if (s.phase !== helmLastPhase) { helmLastPhase = s.phase; helmTries = 0; }
     render();
+    maybeClaimHelm();
   }
 
   function show(name) {
@@ -123,13 +152,17 @@
     $('#waiting-panel').classList.toggle('hidden', !named || admin);
     if (named) $('#my-name').textContent = you.name;
 
-    $('#join-hint').classList.toggle('hidden', snap.adminTaken);
+    $('#join-hint').classList.toggle('hidden', snap.adminTaken || snap.helmLocked);
 
-    const racers = snap.players.length;
-    $('#start-btn').disabled = racers === 0;
-    $('#start-hint').textContent = racers === 0
-      ? 'Nobody aboard yet. The button unlocks when the first boat arrives.'
-      : `${racers} boat${racers === 1 ? '' : 's'} ready. Each one plays 20 of ${snap.totalGames} challenges.`;
+    const ready = snap.readyCount;
+    const listed = snap.players.length;
+    $('#start-btn').disabled = ready === 0;
+    $('#start-hint').textContent =
+      ready === 0 && listed === 0
+        ? 'Nobody aboard yet. The button unlocks when the first boat arrives.'
+        : ready === 0
+          ? `${listed} boat${listed === 1 ? '' : 's'} listed but none connected. Ask the crew to reload the page.`
+          : `${ready} boat${ready === 1 ? '' : 's'} ready. Each one plays 20 of ${snap.totalGames} challenges.`;
 
     $('#player-count').textContent = String(snap.playerCount);
     $('#race-count').textContent = String(snap.playerCount);
@@ -298,7 +331,7 @@
   });
 
   window.addEventListener('beforeunload', () => {
-    if (snap && snap.you && snap.you.role === 'admin' && navigator.sendBeacon) {
+    if (helmKey === null && snap && snap.you && snap.you.role === 'admin' && navigator.sendBeacon) {
       navigator.sendBeacon('/api/action', new Blob(
         [JSON.stringify({ id: playerId, type: 'releaseAdmin' })],
         { type: 'application/json' }
