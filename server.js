@@ -16,12 +16,24 @@ const path = require('path');
 const PORT = process.env.PORT || 3000;
 const PUBLIC_DIR = path.join(__dirname, 'public');
 
+// Optional. Set ADMIN_KEY and the helm is reserved for whoever holds that key,
+// reachable at /?key=<value>. Leave it unset and the old behaviour stands:
+// first person to type "admin" takes the helm.
+const ADMIN_KEY = process.env.ADMIN_KEY || '';
+
 const TOTAL_GAMES = 30;      // size of the minigame pool
 const GAMES_TO_FINISH = 20;  // completions required to cross the finish line
 
-const POLL_TIMEOUT_MS = 25000;   // how long a poll is parked before returning
-const PRESENCE_GRACE_MS = 12000; // no poll for this long => shown as offline
-const DROP_AFTER_MS = 35000;     // no poll for this long => removed entirely
+// Presence invariant: PRESENCE_GRACE_MS must comfortably exceed POLL_TIMEOUT_MS.
+// A client parked in a long poll sends nothing while it waits, so a grace period
+// shorter than the poll hold marks connected players as gone.
+const POLL_TIMEOUT_MS = 20000;   // how long a poll is parked before returning
+const PRESENCE_GRACE_MS = 30000; // no contact for this long => shown as offline
+const DROP_AFTER_MS = 75000;     // no contact for this long => removed entirely
+
+if (PRESENCE_GRACE_MS <= POLL_TIMEOUT_MS) {
+  throw new Error('PRESENCE_GRACE_MS must be greater than POLL_TIMEOUT_MS');
+}
 
 // ---------------------------------------------------------------------------
 // State
@@ -39,16 +51,23 @@ const state = {
 
 let waiters = [];
 
+function releaseWaiter(w, send) {
+  if (w.released) return;
+  w.released = true;
+  clearTimeout(w.timer);
+  const p = state.players.get(w.playerId);
+  if (p && p.parked > 0) p.parked--;
+  if (send) {
+    try { sendJson(w.res, 200, snapshotFor(w.playerId)); }
+    catch (_) { /* client vanished */ }
+  }
+}
+
 function bump() {
   state.version++;
   const due = waiters;
   waiters = [];
-  for (const w of due) {
-    clearTimeout(w.timer);
-    try {
-      sendJson(w.res, 200, snapshotFor(w.playerId));
-    } catch (_) { /* client vanished */ }
-  }
+  for (const w of due) releaseWaiter(w, true);
 }
 
 function newId() {
@@ -70,6 +89,7 @@ function createPlayer() {
     name: '',
     joinedAt: Date.now(),
     lastSeen: Date.now(),
+    parked: 0,
     inRound: false,
     deck: [],
     current: null,
@@ -89,6 +109,8 @@ function racers() {
 }
 
 function online(p) {
+  if (!p) return false;
+  if (p.parked > 0) return true;                       // holding an open long poll
   return Date.now() - p.lastSeen < PRESENCE_GRACE_MS;
 }
 
@@ -194,14 +216,14 @@ function applyAction(p, body) {
       if (state.phase !== 'LOBBY') return;
       const raw = String(body.name || '').trim().slice(0, 18);
       if (!raw) return;
-      if (raw.toLowerCase() === 'admin') { claimAdmin(p); return; }
+      if (raw.toLowerCase() === 'admin' && claimAdmin(p, body.key)) return;
       p.name = raw;
       bump();
       return;
     }
 
     case 'claimAdmin':
-      claimAdmin(p);
+      claimAdmin(p, body.key);
       return;
 
     case 'releaseAdmin':
@@ -246,15 +268,23 @@ function applyAction(p, body) {
   }
 }
 
-function claimAdmin(p) {
-  const current = state.adminId ? state.players.get(state.adminId) : null;
-  if (current && online(current)) return;       // seat already taken
-  if (state.phase === 'RACING' && p.inRound) return; // racers cannot abandon their own race
+function claimAdmin(p, key) {
+  if (state.phase === 'RACING' && p.inRound) return false; // racers cannot abandon their own race
+
+  if (ADMIN_KEY) {
+    // Helm is reserved. Only the key holder gets it, and they can take it back
+    // after a refresh or a browser crash without racing anyone for it.
+    if (key !== ADMIN_KEY) return false;
+  } else {
+    const current = state.adminId ? state.players.get(state.adminId) : null;
+    if (current && online(current) && current.id !== p.id) return false;
+  }
 
   state.adminId = p.id;
   p.name = '';
   p.inRound = false;
   bump();
+  return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -283,9 +313,14 @@ function snapshotFor(playerId) {
   else if (me && state.phase === 'RACING' && !me.inRound) role = 'spectator';
   else if (me && state.phase === 'SCOREBOARD' && !me.inRound) role = 'spectator';
 
+  const readyCount = [...state.players.values()]
+    .filter(p => p.name && !isAdmin(p) && online(p)).length;
+
   return {
     v: state.version,
     phase: state.phase,
+    readyCount,
+    helmLocked: !!ADMIN_KEY,
     serverTime: Date.now(),
     roundStartedAt: state.roundStartedAt,
     gamesToFinish: GAMES_TO_FINISH,
@@ -317,7 +352,7 @@ setInterval(() => {
   let changed = false;
 
   for (const [id, p] of state.players) {
-    if (now - p.lastSeen > DROP_AFTER_MS) {
+    if (p.parked === 0 && now - p.lastSeen > DROP_AFTER_MS) {
       state.players.delete(id);
       if (state.adminId === id) state.adminId = null;
       changed = true;
@@ -432,15 +467,17 @@ const server = http.createServer(async (req, res) => {
 
     if (state.version > since) return sendJson(res, 200, snapshotFor(id));
 
-    const waiter = { res, playerId: id, timer: null };
+    const waiter = { res, playerId: id, timer: null, released: false };
+    p.parked++;
+
     waiter.timer = setTimeout(() => {
       waiters = waiters.filter(w => w !== waiter);
-      try { sendJson(res, 200, snapshotFor(id)); } catch (_) {}
+      releaseWaiter(waiter, true);
     }, POLL_TIMEOUT_MS);
 
     req.on('close', () => {
-      clearTimeout(waiter.timer);
       waiters = waiters.filter(w => w !== waiter);
+      releaseWaiter(waiter, false);
     });
 
     waiters.push(waiter);
@@ -459,4 +496,7 @@ server.keepAliveTimeout = 65000;
 
 server.listen(PORT, () => {
   console.log(`M2C Integration Boat Trip Challenge Extravaganza listening on :${PORT}`);
+  console.log(ADMIN_KEY
+    ? 'Helm reserved. Host link: /?key=<your ADMIN_KEY>'
+    : 'Helm open. First person to type "admin" takes it. Set ADMIN_KEY to reserve it.');
 });
